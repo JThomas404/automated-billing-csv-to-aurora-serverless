@@ -8,7 +8,7 @@
 - [Project Folder Structure](#project-folder-structure)
 - [How the Lambda Function Works](#how-the-lambda-function-works)
 - [Lambda Function Script Breakdown](#lambda-function-script-breakdown)
-- [Tasks and Implementation Steps](#tasks-and-implementation-steps)
+- [Tasks and IaC Implementation Steps](#tasks-and-iac-implementation-steps)
 - [Local Testing](#local-testing)
 - [Lambda Deployment with Environment Variables](#lambda-deployment-with-environment-variables)
 - [IAM Role and Permissions](#iam-role-and-permissions)
@@ -83,7 +83,7 @@ automated-billing-csv-to-aurora-serverless/
 3. The function:
    - Downloads and parses the CSV file
    - Converts non-USD values to USD
-   - Inserts the data into Aurora Serverless using the RDS Data API
+   - Inserts the data into Aurora Serverless using the Direct PyMySQL Connection
 4. Logs execution and errors to CloudWatch for traceability.
 
 ### Currency Conversion
@@ -143,8 +143,6 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 ```
 
-We define the database and AWS resource ARNs, and create clients for S3 and RDS Data API.
-
 ### Record Processing Function
 
 ```python
@@ -199,7 +197,7 @@ def execute_statement(sql, sql_parameters):
         return None
 ```
 
-This function securely executes parameterised SQL queries on Aurora Serverless using RDS Data API.
+This function securely executes parameterised SQL queries on Aurora Serverless.
 
 ### Lambda Entry Point
 
@@ -227,20 +225,20 @@ def lambda_handler(event, context):
 
 ---
 
-## Tasks and Implementation Steps
+## Tasks and IaC Implementation Steps
 
 ### 1. Lambda Code in Python
 
 - Converts billing amounts to USD
 - Retrieves DB credentials from Secrets Manager
-- Inserts rows using parameterised SQL with the RDS Data API
+- Inserts rows using parameterised SQL
 
 ### 2. Set Up IAM Role
 
 Grants the Lambda function access to:
 
 - Read from S3
-- Write to Aurora via RDS Data API
+- Write to Aurora
 - Read from Secrets Manager
 
 ```hcl
@@ -344,7 +342,7 @@ This allows the function to access DB credentials via `os.environ`.
 
 ## IAM Role and Permissions
 
-The IAM policy allows scoped access for S3, RDS Data API, and Secrets Manager:
+The IAM policy allows scoped access for S3, Direct PyMySQL Connection, and Secrets Manager:
 
 ```hcl
 policy = jsonencode({
@@ -419,7 +417,7 @@ The Lambda function then executed successfully, confirming that the external dep
 
 ## Skills Demonstrated
 
-- AWS Lambda integration with Aurora Serverless via RDS Data API
+- AWS Lambda integration with Aurora Serverless via PyMySQL
 - Python-based ETL pipeline with currency-aware logic
 - Secrets Manager integration for secure credential handling
 - Infrastructure-as-Code with Terraform
