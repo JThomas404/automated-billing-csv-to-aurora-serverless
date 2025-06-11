@@ -242,11 +242,11 @@ policy = jsonencode({
 
 ## Design Decisions and Highlights
 
-- **RDS Data API**: Enables serverless SQL execution without maintaining persistent DB connections.
-- **Currency Dictionary**: Encapsulated inside the function for quick updates and clarity.
-- **Secrets Manager**: Securely manages DB credentials.
-- **Terraform Automation**: Ensures reproducible infrastructure.
-- **Zip Packaging**: Guarantees that `pymysql` is included in the Lambda deployment.
+- **Direct PyMySQL Connection**: Rather than using the RDS Data API, the Lambda function connects directly to Aurora Serverless using the `pymysql` library. This allows full SQL flexibility and avoids limitations of the RDS Data API.
+- **Currency Conversion Dictionary**: Maintained inside the Lambda function for transparency, simplicity, and ease of updating.
+- **Secrets Manager Integration**: Secures database credentials and avoids hardcoding sensitive information.
+- **Terraform Automation**: Enables reproducible, version-controlled infrastructure deployments.
+- **Zip-Based Packaging**: External libraries like `pymysql` are bundled into the Lambda deployment package using a build script.
 
 ---
 
