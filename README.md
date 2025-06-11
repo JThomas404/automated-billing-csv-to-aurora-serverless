@@ -254,8 +254,6 @@ policy = jsonencode({
 
 ### ❌ Lambda Not Updating via Terraform
 
-### ❌ Lambda Not Updating via Terraform
-
 One issue encountered during deployment was that code changes made to the Lambda function were not reflected in the AWS Console after running `terraform apply`. Terraform reported that there were “no changes,” even though the source code had clearly been updated.
 
 This problem occurred because Terraform relies on a file hash to determine whether the deployment package has changed. Since this hash was not being tracked, the changes were ignored.
