@@ -1,0 +1,14 @@
+{
+    "Records": [
+        {
+            "s3": {
+                "bucket": {
+                    "name": "boto3-billing-processed-b471d66b"
+                },
+                "object": {
+                    "key": "billing_data_meat_june_2025.csv"
+                }
+            }
+        }
+    ]
+}

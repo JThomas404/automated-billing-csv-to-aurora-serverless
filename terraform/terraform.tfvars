@@ -1,0 +1,5 @@
+aws_region            = "us-east-1"
+bucket_name_processed = "boto3-billing-processed"
+lambda_function_name  = "BillingDataConversionAndIngestion"
+db_name               = "billingdb"
+db_secret_name        = "aurora_billing_db_secret"
