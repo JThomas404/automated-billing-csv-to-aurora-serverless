@@ -254,18 +254,43 @@ policy = jsonencode({
 
 ### ❌ Lambda Not Updating via Terraform
 
-- **Symptom**: Code changes not reflected in AWS Console.
-- **Fix**: Added `source_code_hash = filebase64sha256("lambda_function.zip")` in Terraform to force updates on code change.
+### ❌ Lambda Not Updating via Terraform
 
-### ❌ Logging Error
+One issue encountered during deployment was that code changes made to the Lambda function were not reflected in the AWS Console after running `terraform apply`. Terraform reported that there were “no changes,” even though the source code had clearly been updated.
 
-- **Issue**: Used `logger.error("ERROR: unexpected error: {e}")`, which printed the placeholder instead of the exception.
-- **Fix**: Updated to `logger.error(f"ERROR: unexpected error: {e}")`.
+This problem occurred because Terraform relies on a file hash to determine whether the deployment package has changed. Since this hash was not being tracked, the changes were ignored.
+
+To resolve the issue, the `source_code_hash` attribute was added to the Lambda resource block in `lambda.tf` as follows:
+
+```hcl
+source_code_hash = filebase64sha256("${path.module}/lambda_function.zip")
+```
+
+After adding this line and re-running the deployment script (`bash deploy.sh`), Terraform correctly detected the code change and updated the Lambda function in AWS.
+
+This fix ensured that any future changes to the deployment package would always trigger a redeployment.
+
+---
 
 ### ❌ `No module named 'pymysql'`
 
-- **Cause**: `pymysql` was not included in the deployment package.
-- **Fix**: Installed it inside the `build/` directory and zipped the contents correctly with the Lambda function.
+Another issue encountered was a runtime error stating: `No module named 'pymysql'`. This occurred because the `pymysql` library was not included in the zipped deployment package.
+
+To fix this, the required library was installed locally into a `build/` directory using the following command:
+
+```bash
+pip install pymysql -t build/
+```
+
+The `lambda_function.py` script was then placed inside the same `build/` directory. All files within that folder were zipped (excluding the folder itself) using:
+
+```bash
+cd build && zip -r ../terraform/lambda_function.zip .
+```
+
+After updating the deployment package, the function was redeployed using Terraform.
+
+The Lambda function then executed successfully, confirming that the external dependency was correctly packaged and accessible at runtime.
 
 ---
 
