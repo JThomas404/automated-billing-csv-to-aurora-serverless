@@ -7,6 +7,7 @@
 - [Prerequisites](#prerequisites)
 - [Project Folder Structure](#project-folder-structure)
 - [How the Lambda Function Works](#how-the-lambda-function-works)
+- [Lambda Function Script Breakdown](#lambda-function-script-breakdown)
 - [Tasks and Implementation Steps](#tasks-and-implementation-steps)
 - [Local Testing](#local-testing)
 - [Lambda Deployment with Environment Variables](#lambda-deployment-with-environment-variables)
@@ -98,6 +99,130 @@ converted = round(float(row[8]) * exchange_rates.get(currency, 1), 2)
 secret_name = os.environ["DB_SECRET_NAME"]
 response = secretsmanager.get_secret_value(SecretId=secret_name)
 secret = json.loads(response["SecretString"])
+```
+
+---
+
+## Lambda Function Script Breakdown
+
+### Imports and Initial Setup
+
+```python
+import json
+import boto3
+import pymysql
+import csv
+import os
+import logging
+import io
+```
+
+### Currency Conversion Setup
+
+```python
+currency_conversion_to_usd = {
+    'USD': 1,
+    'CAD': 0.79,
+    'MXN': 0.05
+}
+```
+
+This dictionary maps supported currencies to their USD equivalents.
+
+### AWS Service Configuration
+
+```python
+database_name = 'boto3_rds_instance'
+secrets_store_arn = 'arn:aws:secretsmanager:us-east-1:533267010082:secret:aurora_billing_db_secret-tw5Ix6'
+db_cluster_arn = 'arn:aws:rds:us-east-1:533267010082:cluster:aurora-billing-cluster'
+
+s3_client = boto3.client('s3')
+rds_client = boto3.client('rds-data')
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+```
+
+We define the database and AWS resource ARNs, and create clients for S3 and RDS Data API.
+
+### Record Processing Function
+
+```python
+def process_record(record):
+    id, company_name, country, city, product_line, item, bill_date, currency, bill_amount = record
+    bill_amount = float(bill_amount)
+
+    rate = currency_conversion_to_usd.get(currency)
+    if not rate:
+        logger.info(f"No rate found for currency: {currency}")
+        return
+
+    usd_amount = bill_amount * rate
+
+    sql_statement = """
+        INSERT IGNORE INTO billing_data
+        (id, company_name, country, city, product_line, item, bill_date, currency, bill_amount, bill_amount_usd)
+        VALUES (:id, :company_name, :country, :city, :product_line, :item, :bill_date, :currency, :bill_amount, :usd_amount)
+    """
+
+    sql_parameters = [
+        {'name': 'id', 'value': {'stringValue': id}},
+        {'name': 'company_name', 'value': {'stringValue': company_name}},
+        {'name': 'country', 'value': {'stringValue': country}},
+        {'name': 'city', 'value': {'stringValue': city}},
+        {'name': 'product_line', 'value': {'stringValue': product_line}},
+        {'name': 'item', 'value': {'stringValue': item}},
+        {'name': 'bill_date', 'value': {'stringValue': bill_date}},
+        {'name': 'currency', 'value': {'stringValue': currency}},
+        {'name': 'bill_amount', 'value': {'doubleValue': bill_amount}},
+        {'name': 'usd_amount', 'value': {'doubleValue': usd_amount}},
+    ]
+
+    response = execute_statement(sql_statement, sql_parameters)
+    logger.info(f"SQL execution response: {response}")
+```
+
+### SQL Execution Function
+
+```python
+def execute_statement(sql, sql_parameters):
+    try:
+        return rds_client.execute_statement(
+            secretArn=secrets_store_arn,
+            database=database_name,
+            resourceArn=db_cluster_arn,
+            sql=sql,
+            parameters=sql_parameters
+        )
+    except Exception as e:
+        logger.error(f"ERROR: Could not connect to Aurora Serverless MySQL instance: {e}")
+        return None
+```
+
+This function securely executes parameterised SQL queries on Aurora Serverless using RDS Data API.
+
+### Lambda Entry Point
+
+```python
+def lambda_handler(event, context):
+    logger.info(f"Received event: {json.dumps(event)}")
+
+    try:
+        bucket_name = event['Records'][0]['s3']['bucket']['name']
+        s3_file = event['Records'][0]['s3']['object']['key']
+        response = s3_client.get_object(Bucket=bucket_name, Key=s3_file)
+        data = response['Body'].read().decode('utf-8')
+
+        csv_reader = csv.reader(io.StringIO(data))
+        next(csv_reader)
+
+        for record in csv_reader:
+            process_record(record)
+
+        logger.info("Lambda execution finished successfully.")
+
+    except Exception as e:
+        logger.error(f"ERROR: Unexpected error: {e}")
 ```
 
 ---
