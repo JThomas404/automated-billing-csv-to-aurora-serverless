@@ -85,7 +85,7 @@ automated-billing-csv-to-aurora-serverless/
    - Inserts the data into Aurora Serverless using the RDS Data API
 4. Logs execution and errors to CloudWatch for traceability.
 
-### Currency Conversion Snippet
+### Currency Conversion
 
 ```python
 exchange_rates = {"USD": 1, "CAD": 0.75, "MXN": 0.059}
