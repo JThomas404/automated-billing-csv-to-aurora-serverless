@@ -6,7 +6,7 @@
 - [Real-World Business Value](#real-world-business-value)
 - [Prerequisites](#prerequisites)
 - [Project Folder Structure](#project-folder-structure)
-- [How It Works](#how-it-works)
+- [How the Lambda Function Works](#how-the-lambda-function-works)
 - [Tasks and Implementation Steps](#tasks-and-implementation-steps)
 - [Local Testing](#local-testing)
 - [Lambda Deployment with Environment Variables](#lambda-deployment-with-environment-variables)
@@ -26,63 +26,73 @@ This project implements a serverless ETL pipeline using AWS Lambda, S3, Secrets 
 
 ## Real-World Business Value
 
-For finance, billing, or data engineering teams managing international transactions, this automation reduces manual processing and enforces a consistent data format for analytics. The project eliminates the risk of currency inconsistency while allowing ingestion into a scalable cloud-native RDS solution. It provides a production-ready framework for real-time, event-driven financial data processing.
+For finance, billing, or data engineering teams managing international transactions, this automation reduces manual processing and enforces consistent data formatting for analytics. The project eliminates the risk of currency inconsistencies and allows ingestion into a scalable cloud-native RDS solution, providing a production-ready framework for real-time, event-driven financial data processing.
 
 ---
 
 ## Prerequisites
 
-1. Aurora Serverless V1 database cluster (`aurora-billing-cluster`)
-2. Secrets Manager secret for DB credentials (`aurora_billing_db_secret`)
-3. An S3 bucket for processed billing files (`boto3-billing-processed-*`)
-4. Terraform CLI and AWS CLI configured
-5. Python 3.11 and `PyMySQL` installed in a virtual environment
+- Aurora Serverless V2 database cluster (`aurora-billing-cluster`)
+- AWS Secrets Manager secret for DB credentials (`aurora_billing_db_secret`)
+- An S3 bucket for billing CSV uploads (`boto3-billing-processed-*`)
+- Terraform CLI and AWS CLI configured
+- Python 3.11 and `PyMySQL` installed in a virtual environment
 
 ---
 
 ## Project Folder Structure
 
 ```
+
 automated-billing-csv-to-aurora-serverless/
-├── backend/
-│   ├── lambda_function.py
-│   └── requirements.txt
+├── build/
+├── lambda/
+│   ├── event.json
+│   └── lambda\_function.py
+├── README.md
+├── requirements.txt
+├── deploy.sh
+├── s3\_files/
+│   ├── billing\_data\_bakery\_june\_2025.csv
+│   ├── billing\_data\_dairy\_june\_2025.csv
+│   └── billing\_data\_meat\_june\_2025.csv
 ├── terraform/
-│   ├── lambda.tf
 │   ├── iam.tf
+│   ├── lambda\_function.zip
+│   ├── lambda.tf
+│   ├── main.tf
+│   ├── outputs.tf
 │   ├── rds.tf
 │   ├── s3.tf
 │   ├── secrets.tf
-│   ├── outputs.tf
-│   ├── variables.tf
-│   └── main.tf
-├── lambda_function.zip
-├── deploy.sh
-└── README.md
+│   ├── terraform.tfstate
+│   ├── terraform.tfstate.backup
+│   ├── terraform.tfvars
+│   └── variables.tf
+└── venv/
+
 ```
 
 ---
 
-## How It Works
+## How the Lambda Function Works
 
 1. A billing CSV file is uploaded to an S3 bucket.
 2. The S3 `PUT` event triggers a Lambda function.
 3. The function:
+   - Downloads and parses the CSV file
+   - Converts non-USD values to USD
+   - Inserts the data into Aurora Serverless using the RDS Data API
+4. Logs execution and errors to CloudWatch for traceability.
 
-   - Downloads and parses the CSV
-   - Converts non-USD values into USD
-   - Inserts records into Aurora Serverless using the RDS Data API
-
-4. Any issues are logged to CloudWatch for traceability.
-
-### Sample Code Snippet: Currency Conversion
+### Currency Conversion Snippet
 
 ```python
 exchange_rates = {"USD": 1, "CAD": 0.75, "MXN": 0.059}
 converted = round(float(row[8]) * exchange_rates.get(currency, 1), 2)
 ```
 
-### Sample Code Snippet: Secure DB Credential Fetch
+### Secure Secret Fetch from Secrets Manager
 
 ```python
 secret_name = os.environ["DB_SECRET_NAME"]
@@ -94,32 +104,74 @@ secret = json.loads(response["SecretString"])
 
 ## Tasks and Implementation Steps
 
-### 1. Write Lambda Code in Python
+### 1. Lambda Code in Python
 
-- Handles currency conversion logic
-- Retrieves DB credentials via Secrets Manager
-- Executes parameterised SQL inserts with RDS Data API
+- Converts billing amounts to USD
+- Retrieves DB credentials from Secrets Manager
+- Inserts rows using parameterised SQL with the RDS Data API
 
-### 2. Set up IAM Role for Lambda
+### 2. Set Up IAM Role
 
-- Grants access to:
+Grants the Lambda function access to:
 
-  - S3 bucket (read)
-  - RDS Data API (write)
-  - Secrets Manager (read)
+- Read from S3
+- Write to Aurora via RDS Data API
+- Read from Secrets Manager
 
-### 3. Terraform Configuration
+```hcl
+resource "aws_iam_role" "lambda_role" {
+  name = "lambda_rds_data_api_role"
 
-- Provisions:
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Action = "sts:AssumeRole",
+        Effect = "Allow",
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+```
 
-  - Aurora cluster and instances
-  - Secrets Manager secret and values
-  - S3 bucket
-  - Lambda function and IAM roles
+### 3. Terraform Infrastructure
+
+Provisions:
+
+- Aurora cluster and instances
+- Secrets Manager secret
+- S3 bucket
+- Lambda function
+- IAM roles and permissions
+
+#### `terraform/rds.tf` Example
+
+```hcl
+resource "aws_rds_cluster" "aurora_billing_cluster" {
+  cluster_identifier     = "aurora-billing-cluster"
+  engine                 = "aurora-mysql"
+  engine_version         = "8.0.mysql_aurora.3.02.0"
+  database_name          = "billing_db"
+  master_username        = "admin"
+  master_password        = var.db_password
+  skip_final_snapshot    = true
+  vpc_security_group_ids = [aws_security_group.rds_sg.id]
+}
+
+resource "aws_rds_cluster_instance" "aurora_billing_instance" {
+  count              = 2
+  cluster_identifier = aws_rds_cluster.aurora_billing_cluster.id
+  instance_class     = "db.serverless"
+  engine             = aws_rds_cluster.aurora_billing_cluster.engine
+}
+```
 
 ### 4. Deployment
 
-Run:
+Run the following to deploy:
 
 ```bash
 bash deploy.sh
@@ -127,15 +179,15 @@ bash deploy.sh
 
 This script:
 
-- Zips `lambda_function.py` and dependencies
-- Applies Terraform infrastructure
-- Deploys the latest Lambda package
+- Zips the Lambda code
+- Applies the updated Terraform infrastructure
+- Redeploys the function if there are changes
 
 ---
 
 ## Local Testing
 
-Prepare an S3 trigger `event.json`, then manually test:
+Before pushing to S3, test locally with a mock event:
 
 ```python
 from lambda_function import lambda_handler
@@ -147,13 +199,11 @@ with open("event.json") as f:
 lambda_handler(event, {})
 ```
 
-Use this for debugging before pushing to S3.
-
 ---
 
 ## Lambda Deployment with Environment Variables
 
-Terraform injects secrets and DB config:
+Terraform sets environment variables for the Lambda function:
 
 ```hcl
 environment {
@@ -163,13 +213,13 @@ environment {
 }
 ```
 
-This allows the Lambda to use `os.environ.get("DB_SECRET_NAME")` to fetch credentials securely.
+This allows the function to access DB credentials via `os.environ`.
 
 ---
 
 ## IAM Role and Permissions
 
-Lambda is granted scoped access via inline policy:
+The IAM policy allows scoped access for S3, RDS Data API, and Secrets Manager:
 
 ```hcl
 policy = jsonencode({
@@ -192,44 +242,45 @@ policy = jsonencode({
 
 ## Design Decisions and Highlights
 
-- **RDS Data API**: Used to avoid persistent DB connections within Lambda.
-- **Currency Conversion Dictionary**: Maintained inside the Lambda for simplicity and transparency.
-- **Secrets Manager**: Ensures DB credentials are rotated and secured.
-- **Terraform Automation**: Simplifies repeatable infrastructure provisioning.
-- **Zip Packaging**: Ensures external libraries (e.g., `PyMySQL`) are bundled properly for Lambda.
+- **RDS Data API**: Enables serverless SQL execution without maintaining persistent DB connections.
+- **Currency Dictionary**: Encapsulated inside the function for quick updates and clarity.
+- **Secrets Manager**: Securely manages DB credentials.
+- **Terraform Automation**: Ensures reproducible infrastructure.
+- **Zip Packaging**: Guarantees that `pymysql` is included in the Lambda deployment.
 
 ---
 
 ## Errors Encountered
 
-### ❌ Code Not Updating in Lambda Console
+### ❌ Lambda Not Updating via Terraform
 
-- **Issue**: Terraform reported "No changes" despite code updates.
-- **Fix**: Ensured the `.zip` file path referenced in `filename` was updated (`terraform/lambda_function.zip`), and `source_code_hash` was used for versioning.
+- **Symptom**: Code changes not reflected in AWS Console.
+- **Fix**: Added `source_code_hash = filebase64sha256("lambda_function.zip")` in Terraform to force updates on code change.
 
-### ❌ Logging Error: `unexpected error: {e}`
+### ❌ Logging Error
 
-- **Cause**: Placeholder logging format string `{e}` was not interpolated.
-- **Fix**: Changed to `logger.error(f"ERROR: Unexpected error: {e}")`.
+- **Issue**: Used `logger.error("ERROR: unexpected error: {e}")`, which printed the placeholder instead of the exception.
+- **Fix**: Updated to `logger.error(f"ERROR: unexpected error: {e}")`.
 
-### ❌ Terraform Apply Not Triggering Redeploy
+### ❌ `No module named 'pymysql'`
 
-- **Solution**: Added `source_code_hash = filebase64sha256("lambda_function.zip")` to force update on content change.
+- **Cause**: `pymysql` was not included in the deployment package.
+- **Fix**: Installed it inside the `build/` directory and zipped the contents correctly with the Lambda function.
 
 ---
 
 ## Skills Demonstrated
 
-- Secure AWS Lambda-to-RDS integration using the RDS Data API
-- Currency-aware billing transformation and ingestion
-- Event-driven serverless architecture with S3 triggers
-- Clean Terraform infrastructure-as-code with modular design
-- Pythonic exception handling and structured logging
+- AWS Lambda integration with Aurora Serverless via RDS Data API
+- Python-based ETL pipeline with currency-aware logic
+- Secrets Manager integration for secure credential handling
+- Infrastructure-as-Code with Terraform
+- Cloud debugging and deployment troubleshooting
 
 ---
 
 ## Conclusion
 
-This project utilises an effective pattern for automated, secure, and scalable ingestion of financial billing data into Aurora Serverless using Lambda and event-driven S3 uploads. It highlighted cloud engineering (boto3, terraform, bash) best practices in infrastructure automation, secret handling, and real-time data processing.
+This project presents a secure and scalable solution for processing international billing data using a serverless architecture. It serves as a reusable and extensible framework for real-time financial data pipelines, highlighting best practices in cloud-native engineering, Python automation, and event-driven design.
 
 ---
